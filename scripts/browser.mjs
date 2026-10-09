@@ -59,7 +59,7 @@ export async function shootLayers(page, t, layers) {
   const out = {};
   for (const l of layers) {
     if (l !== 'full') await page.evaluate(async (l) => { window.__vx.layer(l); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); }, l);
-    out[l] = await page.screenshot({ type: 'png', omitBackground: l === 'text', clip: { x: 0, y: 0, width: 1920, height: 1080 }, animations: 'disabled', caret: 'hide' });
+    out[l] = await page.screenshot({ timeout: 90000, type: 'png', omitBackground: l === 'text', clip: { x: 0, y: 0, width: 1920, height: 1080 }, animations: 'disabled', caret: 'hide' });
   }
   return out;
 }

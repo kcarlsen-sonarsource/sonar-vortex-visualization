@@ -4,9 +4,11 @@
 //   node scripts/render.mjs                        → out/sonar-vortex-1080p60.mp4 (master)
 //   node scripts/render.mjs --layers               → master + editable layers in out/layers/:
 //        plate (3D scene, no typography; H.264) and text layer (typography/labels/scrims, alpha; QuickTime Animation)
-//   options: --workers 4  --fps 60  --from <s>  --to <s>  --outdir out
+//   options: --workers 4  --fps 60  --from <s>  --to <s>  --outdir out  --chunk 300 (frames)
+//            --fresh (discard finished chunks)  --keep (keep chunks after concat)
+//   Interrupted renders resume: finished chunks in <outdir>/.segments are reused.
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, existsSync, renameSync } from 'node:fs';
 import { startStaticServer, launch, openStage, shootLayers } from './browser.mjs';
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
@@ -24,9 +26,14 @@ const OUTPUTS = {
   text: { file: `${OUTDIR}/layers/sonar-vortex_text-layer-alpha_1080p60.mov`, ext: 'mov', codec: ['-c:v', 'qtrle', '-pix_fmt', 'argb'] },
 };
 mkdirSync(`${OUTDIR}/layers`, { recursive: true });
+// Work is split into short chunks; finished chunks persist in .segments so an interrupted render resumes.
 const tmp = `${OUTDIR}/.segments`;
-rmSync(tmp, { recursive: true, force: true });
+if (process.argv.includes('--fresh')) rmSync(tmp, { recursive: true, force: true });
 mkdirSync(tmp, { recursive: true });
+const CHUNK = +arg('--chunk', 300);
+
+// Long renders stall if the Mac idles (Chromium stops producing frames), so keep it awake while we run.
+if (process.platform === 'darwin') spawn('caffeinate', ['-dimsu', '-w', String(process.pid)], { stdio: 'ignore', detached: true }).unref();
 
 const { server, url } = await startStaticServer();
 const probe = await launch();
@@ -36,47 +43,76 @@ await probe.close();
 const from = +arg('--from', 0), to = +arg('--to', total);
 const first = Math.round(from * FPS), last = Math.round(to * FPS); // [first, last)
 const N = last - first;
-console.log(`Rendering ${N} frames (${(N / FPS).toFixed(2)}s) at ${FPS}fps with ${WORKERS} workers → ${LAYERS.join(', ')}`);
+const chunks = [];
+for (let a = first; a < last; a += CHUNK) chunks.push({ a, b: Math.min(last, a + CHUNK) });
+const segName = (c, l) => `${tmp}/${l}_${String(c.a).padStart(6, '0')}-${String(c.b).padStart(6, '0')}.${OUTPUTS[l].ext}`;
+const todo = chunks.filter((c) => !LAYERS.every((l) => existsSync(segName(c, l))));
+console.log(`Rendering ${N} frames (${(N / FPS).toFixed(2)}s) at ${FPS}fps → ${LAYERS.join(', ')}; ${chunks.length - todo.length}/${chunks.length} chunks already done`);
 
 const t0 = Date.now();
 let done = 0;
-const per = Math.ceil(N / WORKERS);
-const jobs = [];
-for (let w = 0; w < WORKERS; w++) {
-  const a = first + w * per, b = Math.min(last, a + per);
-  if (a >= b) continue;
-  jobs.push((async () => {
-    const browser = await launch();
-    const page = await openStage(browser, url);
-    const encs = {};
-    for (const l of LAYERS) {
-      const seg = `${tmp}/${l}_${String(w).padStart(2, '0')}.${OUTPUTS[l].ext}`;
-      const ff = spawn('ffmpeg', ['-v', 'error', '-y', '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'png', '-i', '-', ...OUTPUTS[l].codec, '-r', String(FPS), seg], { stdio: ['pipe', 'inherit', 'inherit'] });
-      encs[l] = { ff, seg, closed: new Promise((r) => ff.on('close', r)) };
-    }
-    for (let i = a; i < b; i++) {
-      const shots = await shootLayers(page, i / FPS, LAYERS);
+const todoFrames = todo.reduce((n, c) => n + c.b - c.a, 0);
+
+async function renderChunk(page, c) {
+  const encs = {};
+  for (const l of LAYERS) {
+    const part = `${segName(c, l)}.part.${OUTPUTS[l].ext}`;
+    const ff = spawn('ffmpeg', ['-v', 'error', '-y', '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'png', '-i', '-', ...OUTPUTS[l].codec, '-r', String(FPS), part], { stdio: ['pipe', 'inherit', 'inherit'] });
+    encs[l] = { ff, part, closed: new Promise((r) => ff.on('close', r)) };
+  }
+  try {
+    for (let i = c.a; i < c.b; i++) {
+      // Hard timeout: a stalled page can hang inside evaluate/rAF where Playwright has no timeout.
+      const shots = await Promise.race([
+        shootLayers(page, i / FPS, LAYERS),
+        new Promise((_, rej) => setTimeout(() => rej(new Error(`frame ${i} timed out`)), 120000)),
+      ]);
       for (const l of LAYERS) if (!encs[l].ff.stdin.write(shots[l])) await new Promise((r) => encs[l].ff.stdin.once('drain', r));
-      done++;
-      if (done % 300 === 0) {
+      if (++done % 300 === 0) {
         const el = (Date.now() - t0) / 1000;
-        console.log(`${done}/${N} frames, ${(done / el).toFixed(1)} fps, ETA ${((N - done) / (done / el) / 60).toFixed(1)} min`);
+        console.log(`${done}/${todoFrames} frames, ${(done / el).toFixed(1)} fps, ETA ${((todoFrames - done) / (done / el) / 60).toFixed(1)} min`);
       }
     }
-    for (const l of LAYERS) encs[l].ff.stdin.end();
-    await Promise.all(LAYERS.map((l) => encs[l].closed));
-    await browser.close();
-    return Object.fromEntries(LAYERS.map((l) => [l, encs[l].seg]));
-  })());
+  } catch (e) {
+    for (const l of LAYERS) encs[l].ff.kill('SIGKILL');
+    throw e;
+  }
+  for (const l of LAYERS) encs[l].ff.stdin.end();
+  const codes = await Promise.all(LAYERS.map((l) => encs[l].closed));
+  if (codes.some((x) => x !== 0)) throw new Error(`ffmpeg failed for chunk ${c.a}`);
+  for (const l of LAYERS) renameSync(encs[l].part, segName(c, l));
 }
-const segs = await Promise.all(jobs);
+
+const queue = [...todo];
+await Promise.all(Array.from({ length: Math.min(WORKERS, queue.length) }, async () => {
+  let browser = await launch();
+  let page = await openStage(browser, url);
+  while (queue.length) {
+    const c = queue.shift();
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await renderChunk(page, c);
+        break;
+      } catch (e) {
+        console.log(`chunk ${c.a}-${c.b} failed (attempt ${attempt}): ${e.message.split('\n')[0]}`);
+        if (attempt >= 4) throw e;
+        await browser.close().catch(() => {});
+        browser = await launch();
+        page = await openStage(browser, url);
+      }
+    }
+  }
+  await browser.close();
+}));
+
 for (const l of LAYERS) {
   const list = `${tmp}/list_${l}.txt`;
-  writeFileSync(list, segs.map((s) => `file '${s[l].split('/').pop()}'`).join('\n'));
+  writeFileSync(list, chunks.map((c) => `file '${segName(c, l).split('/').pop()}'`).join('\n'));
   const extra = OUTPUTS[l].ext === 'mp4' ? ['-movflags', '+faststart'] : [];
-  await new Promise((r) => spawn('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', ...extra, OUTPUTS[l].file], { stdio: 'inherit' }).on('close', r));
+  const code = await new Promise((r) => spawn('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', ...extra, OUTPUTS[l].file], { stdio: 'inherit' }).on('close', r));
+  if (code !== 0) throw new Error(`concat failed for ${l}`);
   console.log(`Wrote ${OUTPUTS[l].file}`);
 }
-rmSync(tmp, { recursive: true, force: true });
+if (!process.argv.includes('--keep')) rmSync(tmp, { recursive: true, force: true });
 console.log(`Done in ${((Date.now() - t0) / 60000).toFixed(1)} min`);
 await server.close();
