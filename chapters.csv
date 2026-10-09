@@ -1,0 +1,12 @@
+number,chapter,id,start_seconds,end_seconds,start_timecode,end_timecode,start_frame_60fps
+01,"Title",title,0,12,00:00:00:00,00:00:12:00,0
+02,"Machine speed",speed,12,26,00:00:12:00,00:00:26:00,720
+03,"Doesn't know your project",blind,26,44,00:00:26:00,00:00:44:00,1560
+04,"Mistakes surface late",late,44,62,00:00:44:00,00:01:02:00,2640
+05,"Meet Sonar Vortex",meet,62,76,00:01:02:00,00:01:16:00,3720
+06,"01 · Guide",guide,76,98,00:01:16:00,00:01:38:00,4560
+07,"02 · Verify",verify,98,116,00:01:38:00,00:01:56:00,5880
+08,"03 · Solve",solve,116,134,00:01:56:00,00:02:14:00,6960
+09,"Works with your stack",stack,134,148,00:02:14:00,00:02:28:00,8040
+10,"Outcome",outcome,148,170,00:02:28:00,00:02:50:00,8880
+11,"Outro",outro,170,182,00:02:50:00,00:03:02:00,10200

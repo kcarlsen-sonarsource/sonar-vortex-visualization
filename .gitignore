@@ -1,0 +1,7 @@
+node_modules/
+dist/
+out/
+frames/
+*.log
+.claude/
+.DS_Store

@@ -1,0 +1,150 @@
+:root {
+  --ink: #e9ebf0;
+  --muted: #8a97ac;
+  --accent: #126ed3;
+  --accent-hi: #4f9cf0;
+  --mark: #0070d9;
+  --surface: #031426;
+  --error: #f2555f;
+  --pass: #34c27a;
+  --display: 'Inter Variable', Inter, system-ui, sans-serif;
+  --mono: 'Space Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; background: #000; overflow: hidden; }
+body { font-family: var(--display); color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+#viewport { position: fixed; inset: 0; overflow: hidden; cursor: pointer; }
+body.render #viewport { cursor: none; }
+
+#stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: #01060d;
+  transform-origin: center center;
+}
+#gl { position: absolute; inset: 0; width: 1920px; height: 1080px; display: block; }
+#labels, #overlay, #blackout { position: absolute; inset: 0; pointer-events: none; }
+#blackout { background: #000; opacity: 1; }
+/* Explicit stacking: the dip-to-black must cover headlines too (their z-index stays inside #overlay). */
+#overlay { z-index: 1; }
+#labels { z-index: 2; } /* labels sit above scrims; layouts keep them clear of headlines */
+#blackout { z-index: 3; }
+
+/* ---------- Headlines ---------- */
+.chapter-text { position: absolute; inset: 0; opacity: 0; }
+.headline-block { position: absolute; left: 128px; top: 112px; width: 1240px; z-index: 2; }
+.scrim { z-index: 0; }
+.headline-block.center { left: 0; right: 0; width: auto; text-align: center; }
+.headline-block.bottom { top: auto; bottom: 120px; }
+
+.kicker {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--accent-hi);
+  margin-bottom: 26px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.headline-block.center .kicker { justify-content: center; }
+.kicker .rule { display: inline-block; height: 2px; width: 56px; background: currentColor; transform-origin: left center; }
+
+.headline {
+  font-weight: 640;
+  font-size: 84px;
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.headline .w { display: inline-block; will-change: transform, opacity; }
+.headline em { font-style: normal; color: var(--accent-hi); }
+.headline em.err { color: var(--error); }
+.headline em.ok { color: var(--pass); }
+
+.subline {
+  margin-top: 26px;
+  font-size: 34px;
+  font-weight: 420;
+  letter-spacing: -0.01em;
+  color: #b9c4d6;
+}
+
+/* ---------- Logos ---------- */
+.lockup { position: absolute; left: 50%; transform: translateX(-50%); }
+.brand-corner {
+  position: absolute; right: 72px; bottom: 56px; height: 30px; opacity: 0.55;
+}
+
+/* ---------- 3D-anchored labels ---------- */
+.label {
+  position: absolute; left: 0; top: 0;
+  font-family: var(--mono);
+  font-size: 19px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  color: #d7e3f5;
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(110, 168, 240, 0.45);
+  background: rgba(3, 20, 38, 0.78);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.label.plain { border: none; background: none; padding: 0; color: #a7b5ca; text-shadow: 0 0 12px rgba(1,6,13,0.95), 0 0 4px rgba(1,6,13,0.9); text-transform: uppercase; letter-spacing: 0.16em; font-size: 18px; }
+.label.err { border-color: rgba(242, 85, 95, 0.85); color: #ffd9dc; background: rgba(48, 6, 12, 0.85); }
+.label.ok { border-color: rgba(52, 194, 122, 0.85); color: #d4f7e4; background: rgba(4, 36, 22, 0.85); }
+.label.big { font-size: 24px; padding: 12px 24px; }
+.label.node {
+  font-weight: 700; font-size: 24px; letter-spacing: 0.2em; padding: 14px 28px;
+  border-color: rgba(79, 156, 240, 0.9); color: #fff; background: rgba(6, 34, 66, 0.9);
+}
+.label .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 12px; background: currentColor; vertical-align: 1px; }
+
+/* ---------- Meters & stats ---------- */
+.meter { position: absolute; left: 128px; bottom: 120px; width: 560px; }
+.scrim.meter-scrim { position: absolute; left: 0; bottom: 0; width: 888px; height: 254px; background: radial-gradient(ellipse 60% 70% at 30% 60%, rgba(1,6,13,0.85), rgba(1,6,13,0) 75%); opacity: 0; }
+.meter .cap { font-family: var(--mono); font-size: 20px; letter-spacing: 0.18em; color: var(--muted); display: flex; justify-content: space-between; margin-bottom: 14px; }
+.meter .cap b { color: #ffc0c4; font-weight: 700; }
+.meter .track { height: 10px; border-radius: 6px; background: rgba(140, 160, 190, 0.16); overflow: hidden; }
+.meter .fill { height: 100%; width: 100%; border-radius: 6px; background: linear-gradient(90deg, #f2a65f, var(--error)); transform-origin: left center; }
+
+.stats { position: absolute; left: 128px; right: 128px; bottom: 112px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 56px; }
+.stat { border-top: 2px solid rgba(79, 156, 240, 0.5); padding-top: 26px; opacity: 0; }
+.stat .num { font-size: 132px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; color: #fff; font-variant-numeric: tabular-nums; }
+.stat .lbl { margin-top: 16px; font-size: 30px; font-weight: 450; color: #b9c4d6; letter-spacing: -0.005em; }
+.footnote { position: absolute; left: 128px; bottom: 56px; font-family: var(--mono); font-size: 15px; letter-spacing: 0.08em; color: #5d6b82; opacity: 0; }
+
+.url { font-family: var(--mono); font-size: 24px; letter-spacing: 0.12em; color: var(--muted); }
+
+/* ---------- Presenter HUD ---------- */
+#hud {
+  position: fixed; left: 0; right: 0; bottom: 18px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  pointer-events: none; transition: opacity 0.6s; opacity: 0;
+}
+#hud.show { opacity: 1; }
+body.render #hud { display: none; }
+/* Layered exports */
+/* plate = 3D scene + scrims (background darkening); text = everything typographic, on alpha */
+body.layer-plate #labels { display: none; }
+body.layer-plate .chapter-text > :not(.scrim) { visibility: hidden; }
+body.layer-text .scrim { visibility: hidden; }
+body.layer-text, body.layer-text #viewport, body.layer-text #stage { background: transparent; }
+body.layer-text #gl, body.layer-text #blackout { display: none; }
+#dots { display: flex; gap: 10px; pointer-events: auto; }
+#dots button {
+  width: 34px; height: 6px; border: none; border-radius: 3px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.22);
+}
+#dots button.on { background: var(--accent-hi); }
+#hint { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; color: rgba(255, 255, 255, 0.45); }
